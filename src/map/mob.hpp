@@ -6,6 +6,7 @@
 
 #include <vector>
 
+#include "../common/database.hpp"
 #include "../common/mmo.hpp" // struct item
 #include "../common/timer.hpp"
 
@@ -14,6 +15,12 @@
 
 struct guardian_data;
 
+//This is the distance at which @autoloot works,
+//if the item drops farther from the player than this,
+//it will not be autolooted. [Skotlex]
+//Note: The range is unlimited unless this define is set.
+//#define AUTOLOOT_DISTANCE AREA_SIZE
+
 //The number of drops all mobs have and the max drop-slot that the steal skill will attempt to steal from.
 #define MAX_MOB_DROP 10
 #define MAX_MVP_DROP 3
@@ -21,16 +28,13 @@ struct guardian_data;
 #define MAX_MVP_DROP_ADD 2
 #define MAX_MOB_DROP_TOTAL (MAX_MOB_DROP+MAX_MOB_DROP_ADD)
 #define MAX_MVP_DROP_TOTAL (MAX_MVP_DROP+MAX_MVP_DROP_ADD)
-#define MAX_STEAL_DROP 7
-
-#define MAX_RACE2_MOBS 100
 
 //Min time between AI executions
-#define MIN_MOBTHINKTIME 100
+const t_tick MIN_MOBTHINKTIME = 100;
 //Min time before mobs do a check to call nearby friends for help (or for slaves to support their master)
-#define MIN_MOBLINKTIME 1000
+const t_tick MIN_MOBLINKTIME = 1000;
 //Min time between random walks
-#define MIN_RANDOMWALKTIME 4000
+const t_tick MIN_RANDOMWALKTIME = 4000;
 
 //Distance that slaves should keep from their master.
 #define MOB_SLAVEDISTANCE 2
@@ -69,6 +73,7 @@ enum MOBID {
 	MOBID_S_HORNET			= 2158,
 	MOBID_S_GIANT_HORNET,
 	MOBID_S_LUCIOLA_VESPA,
+	MOBID_GUILD_SKILL_FLAG	= 20269,
 };
 
 ///Mob skill states.
@@ -93,7 +98,7 @@ enum MobDamageLogFlag
 	MDLF_SELF
 };
 
-enum size {
+enum e_size : uint8 {
 	SZ_SMALL = 0,
 	SZ_MEDIUM,
 	SZ_BIG,
@@ -101,16 +106,77 @@ enum size {
 	SZ_MAX
 };
 
-/// Used hardcoded Random Monster group in src
-enum e_Random_Monster {
-	MOBG_Branch_Of_Dead_Tree	= 0,
-	MOBG_Poring_Box				= 1,
-	MOBG_Bloody_Dead_Branch		= 2,
-	MOBG_Red_Pouch_Of_Surprise	= 3,
-	MOBG_ClassChange			= 4,
+/// Random Monster Groups
+enum e_random_monster : uint16 {
+	MOBG_Branch_Of_Dead_Tree = 0,
+	MOBG_Poring_Box,
+	MOBG_Bloody_Dead_Branch,
+	MOBG_Red_Pouch_Of_Surprise,
+	MOBG_ClassChange,
+	MOBG_Taekwon_Mission,
 };
 
-struct mob_skill {
+/// Random Monster Group Flags
+enum e_random_monster_flags {
+	RMF_NONE			= 0x00, ///< Apply no flags
+	RMF_DB_RATE			= 0x01, ///< Apply the summon success chance found in the list (otherwise get any monster from the db)
+	RMF_CHECK_MOB_LV	= 0x02, ///< Apply a monster level check
+	RMF_MOB_NOT_BOSS	= 0x04, ///< Selected monster should not be a Boss type (except those from MOBG_Bloody_Dead_Branch)
+	RMF_MOB_NOT_SPAWN	= 0x08, ///< Selected monster must have normal spawn
+	RMF_MOB_NOT_PLANT	= 0x10, ///< Selected monster should not be a Plant type
+	RMF_ALL				= 0xFF, ///< Apply all flags
+};
+
+enum e_mob_bosstype : uint8{
+	BOSSTYPE_NONE,
+	BOSSTYPE_MINIBOSS,
+	BOSSTYPE_MVP
+};
+
+/// Monster Aegis AI types
+enum e_aegis_monstertype : uint16 {
+	MONSTER_TYPE_01 = 0x81,
+	MONSTER_TYPE_02 = 0x83,
+	MONSTER_TYPE_03 = 0x1089,
+	MONSTER_TYPE_04 = 0x3885,
+	MONSTER_TYPE_05 = 0x2085,
+	MONSTER_TYPE_06 = 0,
+	MONSTER_TYPE_07 = 0x108B,
+	MONSTER_TYPE_08 = 0x7085,
+	MONSTER_TYPE_09 = 0x3095,
+	MONSTER_TYPE_10 = 0x84,
+	MONSTER_TYPE_11 = 0x84,
+	MONSTER_TYPE_12 = 0x2085,
+	MONSTER_TYPE_13 = 0x308D,
+	//MONSTER_TYPE_14
+	//MONSTER_TYPE_15
+	//MONSTER_TYPE_16
+	MONSTER_TYPE_17 = 0x91,
+	//MONSTER_TYPE_18
+	MONSTER_TYPE_19 = 0x3095,
+	MONSTER_TYPE_20 = 0x3295,
+	MONSTER_TYPE_21 = 0x3695,
+	//MONSTER_TYPE_22
+	//MONSTER_TYPE_23
+	MONSTER_TYPE_24 = 0xA1,
+	MONSTER_TYPE_25 = 0x1,
+	MONSTER_TYPE_26 = 0xB695,
+	MONSTER_TYPE_27 = 0x8084,
+};
+
+/// Aegis monster class types
+enum e_aegis_monsterclass : int8 {
+	CLASS_NONE = -1,
+	CLASS_NORMAL = 0,
+	CLASS_BOSS,
+	CLASS_GUARDIAN,
+	CLASS_BATTLEFIELD = 4,
+	CLASS_EVENT,
+	CLASS_ALL,
+	CLASS_MAX,
+};
+
+struct s_mob_skill {
 	enum MobSkillState state;
 	uint16 skill_id,skill_lv;
 	short permillage;
@@ -142,26 +208,45 @@ struct s_mob_lootitem {
 
 /// Struct for monster's drop item
 struct s_mob_drop {
-	unsigned short nameid;
-	int p;
-	uint8 randomopt_group;
-	unsigned steal_protected : 1;
+	t_itemid nameid;
+	uint32 rate;
+	uint16 randomopt_group;
+	bool steal_protected;
 };
 
-struct mob_db {
-	char sprite[NAME_LENGTH],name[NAME_LENGTH],jname[NAME_LENGTH];
-	unsigned int base_exp,job_exp;
-	unsigned int mexp;
-	short range2,range3;
-	enum e_race2 race2;	// celest
-	unsigned short lv;
-	struct s_mob_drop dropitem[MAX_MOB_DROP_TOTAL], mvpitem[MAX_MVP_DROP_TOTAL];
-	struct status_data status;
-	struct view_data vd;
-	unsigned int option;
-	int maxskill;
-	struct mob_skill skill[MAX_MOBSKILL];
+struct s_mob_db {
+	std::string sprite, name, jname;
+	t_exp base_exp;
+	t_exp job_exp;
+	t_exp mexp;
+	uint16 range2, range3;
+	std::vector<e_race2> race2;	// celest
+	uint16 lv;
+	s_mob_drop dropitem[MAX_MOB_DROP_TOTAL], mvpitem[MAX_MVP_DROP_TOTAL];
+	status_data status;
+	view_data vd;
+	uint32 option;
+	std::vector<std::shared_ptr<s_mob_skill>> skill;
+	uint16 damagetaken;
+
+	e_mob_bosstype get_bosstype();
 };
+
+class MobDatabase : public TypesafeCachedYamlDatabase <uint32, s_mob_db> {
+private:
+	bool parseDropNode(std::string nodeName, YAML::Node node, uint8 max, s_mob_drop *drops);
+
+public:
+	MobDatabase() : TypesafeCachedYamlDatabase("MOB_DB", 2, 1) {
+
+	}
+
+	const std::string getDefaultLocation();
+	uint64 parseBodyNode(const YAML::Node &node);
+	void loadingFinished();
+};
+
+extern MobDatabase mob_db;
 
 struct mob_data {
 	struct block_list bl;
@@ -170,7 +255,7 @@ struct mob_data {
 	bool vd_changed;
 	struct status_data status, *base_status; //Second one is in case of leveling up mobs, or tiny/large mobs.
 	struct status_change sc;
-	struct mob_db *db;	//For quick data access (saves doing mob_db(md->mob_id) all the time) [Skotlex]
+	std::shared_ptr<s_mob_db> db;	//For quick data access (saves doing mob_db(md->mob_id) all the time) [Skotlex]
 	char name[NAME_LENGTH];
 	struct s_specialState {
 		unsigned int size : 2; //Small/Big monsters.
@@ -206,9 +291,9 @@ struct mob_data {
 	int level;
 	int target_id,attacked_id,norm_attacked_id;
 	int areanpc_id; //Required in OnTouchNPC (to avoid multiple area touchs)
-	unsigned int bg_id; // BattleGround System
+	int bg_id; // BattleGround System
 
-	unsigned int next_walktime,last_thinktime,last_linktime,last_pcneartime,dmgtick;
+	t_tick next_walktime,last_thinktime,last_linktime,last_pcneartime,dmgtick;
 	short move_fail_count;
 	short lootitem_count;
 	short min_chase;
@@ -218,7 +303,7 @@ struct mob_data {
 	int master_id,master_dist;
 
 	int8 skill_idx; // Index of last used skill from db->skill[]
-	unsigned int skilldelay[MAX_MOBSKILL];
+	t_tick skilldelay[MAX_MOBSKILL];
 	char npc_event[EVENT_NAME_LENGTH];
 	/**
 	 * Did this monster summon something?
@@ -229,6 +314,19 @@ struct mob_data {
 	 * MvP Tombstone NPC ID
 	 **/
 	int tomb_nid;
+
+	e_mob_bosstype get_bosstype();
+};
+
+class MobAvailDatabase : public YamlDatabase {
+public:
+	MobAvailDatabase() : YamlDatabase("MOB_AVAIL_DB", 1) {
+
+	}
+
+	void clear() { };
+	const std::string getDefaultLocation();
+	uint64 parseBodyNode(const YAML::Node& node);
 };
 
 enum e_mob_skill_target {
@@ -287,8 +385,8 @@ struct item_drop_list {
 	struct item_drop* item;            // linked list of drops
 };
 
-struct mob_db *mob_db(int mob_id);
 uint16 mobdb_searchname(const char * const str);
+std::shared_ptr<s_mob_db> mobdb_search_aegisname( const char* str );
 int mobdb_searchname_array(const char *str, uint16 * out, int size);
 int mobdb_checkid(const int id);
 struct view_data* mob_get_viewdata(int mob_id);
@@ -309,10 +407,10 @@ int mob_spawn_guardian(const char* mapname, int16 x, int16 y, const char* mobnam
 int mob_spawn_bg(const char* mapname, int16 x, int16 y, const char* mobname, int mob_id, const char* event, unsigned int bg_id);
 int mob_guardian_guildchange(struct mob_data *md); //Change Guardian's ownership. [Skotlex]
 
-int mob_randomwalk(struct mob_data *md,unsigned int tick);
+int mob_randomwalk(struct mob_data *md,t_tick tick);
 int mob_warpchase(struct mob_data *md, struct block_list *target);
 int mob_target(struct mob_data *md,struct block_list *bl,int dist);
-int mob_unlocktarget(struct mob_data *md, unsigned int tick);
+int mob_unlocktarget(struct mob_data *md, t_tick tick);
 struct mob_data* mob_spawn_dataset(struct spawn_data *data);
 int mob_spawn(struct mob_data *md);
 TIMER_FUNC(mob_delayspawn);
@@ -326,7 +424,6 @@ void mob_heal(struct mob_data *md,unsigned int heal);
 
 #define mob_stop_walking(md, type) unit_stop_walking(&(md)->bl, type)
 #define mob_stop_attack(md) unit_stop_attack(&(md)->bl)
-#define mob_is_samename(md, mid) (strcmp(mob_db((md)->mob_id)->jname, mob_db(mid)->jname) == 0)
 
 void mob_clear_spawninfo();
 void do_init_mob(void);
@@ -336,13 +433,13 @@ TIMER_FUNC(mob_timer_delete);
 int mob_deleteslave(struct mob_data *md);
 
 int mob_random_class (int *value, size_t count);
-int mob_get_random_id(int type, int flag, int lv);
+int mob_get_random_id(int type, enum e_random_monster_flags flag, int lv);
 int mob_class_change(struct mob_data *md,int mob_id);
 int mob_warpslave(struct block_list *bl, int range);
 int mob_linksearch(struct block_list *bl,va_list ap);
 
-int mobskill_use(struct mob_data *md,unsigned int tick,int event);
-int mobskill_event(struct mob_data *md,struct block_list *src,unsigned int tick, int flag);
+int mobskill_use(struct mob_data *md,t_tick tick,int event);
+int mobskill_event(struct mob_data *md,struct block_list *src,t_tick tick, int flag);
 int mob_summonslave(struct mob_data *md2,int *value,int amount,uint16 skill_id);
 int mob_countslave(struct block_list *bl);
 int mob_count_sub(struct block_list *bl, va_list ap);

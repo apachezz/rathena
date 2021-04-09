@@ -10,6 +10,7 @@
 
 #include "cbasetypes.hpp"
 #include "db.hpp"
+#include "timer.hpp" // t_tick
 
 #ifndef PACKETVER
 	#error Please define PACKETVER in src/config/packets.hpp
@@ -32,6 +33,12 @@
 	#define MAX_HOTKEYS 38
 #endif
 
+#if PACKETVER_MAIN_NUM >= 20190522 || PACKETVER_RE_NUM >= 20190508 || PACKETVER_ZERO_NUM >= 20190605
+	#define MAX_HOTKEYS_DB ((MAX_HOTKEYS) * 2)
+#else
+	#define MAX_HOTKEYS_DB MAX_HOTKEYS
+#endif
+
 #define MAX_MAP_PER_SERVER 1500 /// Maximum amount of maps available on a server
 #define MAX_INVENTORY 100 ///Maximum items in player inventory
 /** Max number of characters per account. Note that changing this setting alone is not enough if the client is not hexed to support more characters as well.
@@ -45,6 +52,9 @@
 		#define MAX_CHARS 9
 	#endif
 #endif
+
+typedef uint32 t_itemid;
+
 /** Number of slots carded equipment can have. Never set to less than 4 as they are also used to keep the data of forged items/equipment. [Skotlex]
 * Note: The client seems unable to receive data for more than 4 slots due to all related packets having a fixed size. */
 #define MAX_SLOTS 4
@@ -53,7 +63,7 @@
 #define MAX_BANK_ZENY SINT32_MAX ///Max zeny in Bank
 #define MAX_FAME 1000000000 ///Max fame points
 #define MAX_CART 100 ///Maximum item in cart
-#define MAX_SKILL 1200 ///Maximum skill can be hold by Player, Homunculus, & Mercenary (skill list) AND skill_db limit
+#define MAX_SKILL 1250 ///Maximum skill can be hold by Player, Homunculus, & Mercenary (skill list) AND skill_db limit
 #define DEFAULT_WALK_SPEED 150 ///Default walk speed
 #define MIN_WALK_SPEED 20 ///Min walk speed
 #define MAX_WALK_SPEED 1000 ///Max walk speed
@@ -64,16 +74,27 @@
 #define MAX_GUILDPOSITION 20	///Increased max guild positions to accomodate for all members [Valaris] (removed) [PoW]
 #define MAX_GUILDEXPULSION 32 ///Max Guild expulsion
 #define MAX_GUILDALLIANCE 16 ///Max Guild alliance
-#define MAX_GUILDSKILL	17 ///Max Guild skills
+#ifdef RENEWAL
+#define MAX_GUILDSKILL	20 ///Max Guild skills
+#else
+#define MAX_GUILDSKILL	15 ///Max Guild skills
+#endif
 #define MAX_GUILDLEVEL 50 ///Max Guild level
 #define MAX_GUARDIANS 8	///Local max per castle. If this value is increased, need to add more fields on MySQL `guild_castle` table [Skotlex]
 #define MAX_QUEST_OBJECTIVES 3 ///Max quest objectives for a quest
-#define MAX_QUEST_DROPS 3 ///Max quest drops for a quest
 #define MAX_PC_BONUS_SCRIPT 50 ///Max bonus script can be fetched from `bonus_script` table on player load [Cydh]
 #define MAX_ITEM_RDM_OPT 5	 /// Max item random option [Napster]
 #define DB_NAME_LEN 256 //max len of dbs
 #define MAX_CLAN 500
 #define MAX_CLANALLIANCE 6
+
+#ifdef RENEWAL
+	#define MAX_WEAPON_LEVEL 5
+	#define MAX_ARMOR_LEVEL 2
+#else
+	#define MAX_WEAPON_LEVEL 4
+	#define MAX_ARMOR_LEVEL 1
+#endif
 
 // for produce
 #define MIN_ATTRIBUTE 0
@@ -84,8 +105,8 @@
 
 #define MAX_STATUS_TYPE 5
 
-#define WEDDING_RING_M 2634
-#define WEDDING_RING_F 2635
+const t_itemid WEDDING_RING_M = 2634;
+const t_itemid WEDDING_RING_F = 2635;
 
 //For character names, title names, guilds, maps, etc.
 //Includes null-terminator as it is the length of the array.
@@ -137,10 +158,13 @@
 #define MAIL_MAX_ITEM 5
 #define MAIL_PAGE_SIZE 7
 #endif
+#ifndef MAIL_ITERATION_SIZE
+	#define MAIL_ITERATION_SIZE 100
+#endif
 
 //Mercenary System
 #define MC_SKILLBASE 8201
-#define MAX_MERCSKILL 40
+#define MAX_MERCSKILL 41
 
 //Elemental System
 #define MAX_ELEMENTALSKILL 42
@@ -151,7 +175,6 @@
 #define EL_CLASS_MAX (EL_CLASS_BASE+MAX_ELEMENTAL_CLASS-1)
 
 //Achievement System
-#define MAX_ACHIEVEMENT_RANK 20 /// Maximum achievement level
 #define MAX_ACHIEVEMENT_OBJECTIVES 10 /// Maximum different objectives in achievement_db.yml
 #define MAX_ACHIEVEMENT_DEPENDENTS 20 /// Maximum different dependents in achievement_db.yml
 #define ACHIEVEMENT_NAME_LENGTH 50 /// Max Achievement Name length
@@ -181,16 +204,16 @@ enum e_mode {
 	MD_LOOTER				= 0x0000002,
 	MD_AGGRESSIVE			= 0x0000004,
 	MD_ASSIST				= 0x0000008,
-	MD_CASTSENSOR_IDLE		= 0x0000010,
-	MD_NORANDOM_WALK		= 0x0000020,
-	MD_NOCAST_SKILL			= 0x0000040,
+	MD_CASTSENSORIDLE		= 0x0000010,
+	MD_NORANDOMWALK			= 0x0000020,
+	MD_NOCAST				= 0x0000040,
 	MD_CANATTACK			= 0x0000080,
 	//FREE					= 0x0000100,
-	MD_CASTSENSOR_CHASE		= 0x0000200,
+	MD_CASTSENSORCHASE		= 0x0000200,
 	MD_CHANGECHASE			= 0x0000400,
 	MD_ANGRY				= 0x0000800,
-	MD_CHANGETARGET_MELEE	= 0x0001000,
-	MD_CHANGETARGET_CHASE	= 0x0002000,
+	MD_CHANGETARGETMELEE	= 0x0001000,
+	MD_CHANGETARGETCHASE	= 0x0002000,
 	MD_TARGETWEAK			= 0x0004000,
 	MD_RANDOMTARGET			= 0x0008000,
 	MD_IGNOREMELEE			= 0x0010000,
@@ -198,13 +221,13 @@ enum e_mode {
 	MD_IGNORERANGED			= 0x0040000,
 	MD_MVP					= 0x0080000,
 	MD_IGNOREMISC			= 0x0100000,
-	MD_KNOCKBACK_IMMUNE		= 0x0200000,
-	MD_TELEPORT_BLOCK		= 0x0400000,
+	MD_KNOCKBACKIMMUNE		= 0x0200000,
+	MD_TELEPORTBLOCK		= 0x0400000,
 	//FREE					= 0x0800000,
-	MD_FIXED_ITEMDROP		= 0x1000000,
+	MD_FIXEDITEMDROP		= 0x1000000,
 	MD_DETECTOR				= 0x2000000,
-	MD_STATUS_IMMUNE		= 0x4000000,
-	MD_SKILL_IMMUNE			= 0x8000000,
+	MD_STATUSIMMUNE			= 0x4000000,
+	MD_SKILLIMMUNE			= 0x8000000,
 };
 
 #define MD_MASK 0x000FFFF
@@ -212,7 +235,7 @@ enum e_mode {
 #define CL_MASK 0xF000000
 
 // Questlog states
-enum quest_state {
+enum e_quest_state : uint8 {
 	Q_INACTIVE, ///< Inactive quest (the user can toggle between active and inactive quests)
 	Q_ACTIVE,   ///< Active quest
 	Q_COMPLETE, ///< Completed quest
@@ -221,9 +244,9 @@ enum quest_state {
 /// Questlog entry
 struct quest {
 	int quest_id;                    ///< Quest ID
-	unsigned int time;               ///< Expiration time
+	uint32 time;                     ///< Expiration time
 	int count[MAX_QUEST_OBJECTIVES]; ///< Kill counters of each quest objective
-	enum quest_state state;          ///< Current quest state
+	e_quest_state state;             ///< Current quest state
 };
 
 struct s_item_randomoption {
@@ -243,21 +266,23 @@ struct achievement {
 
 struct item {
 	int id;
-	unsigned short nameid;
+	t_itemid nameid;
 	short amount;
 	unsigned int equip; // location(s) where item is equipped (using enum equip_pos for bitmasking)
 	char identify;
 	char refine;
 	char attribute;
-	unsigned short card[MAX_SLOTS];
+	t_itemid card[MAX_SLOTS];
 	struct s_item_randomoption option[MAX_ITEM_RDM_OPT];		// max of 5 random options can be supported.
 	unsigned int expire_time;
 	char favorite, bound;
 	uint64 unique_id;
+	unsigned int equipSwitch; // location(s) where item is equipped for equip switching (using enum equip_pos for bitmasking)
+	uint8 enchantgrade;
 };
 
 //Equip position constants
-enum equip_pos {
+enum equip_pos : uint32 {
 	EQP_HEAD_LOW         = 0x000001,
 	EQP_HEAD_MID         = 0x000200, // 512
 	EQP_HEAD_TOP         = 0x000100, // 256
@@ -292,8 +317,9 @@ struct point {
 };
 
 struct startitem {
-	unsigned short nameid, amount;
-	short pos;
+	t_itemid nameid;
+	unsigned short amount;
+	uint32 pos;
 };
 
 enum e_skill_flag
@@ -321,7 +347,7 @@ struct script_reg_state {
 
 struct script_reg_num {
 	struct script_reg_state flag;
-	int value;
+	int64 value;
 };
 
 struct script_reg_str {
@@ -332,13 +358,14 @@ struct script_reg_str {
 //For saving status changes across sessions. [Skotlex]
 struct status_change_data {
 	unsigned short type; //SC_type
-	long val1, val2, val3, val4, tick; //Remaining duration.
+	long val1, val2, val3, val4;
+	t_tick tick; //Remaining duration.
 };
 
 #define MAX_BONUS_SCRIPT_LENGTH 512
 struct bonus_script_data {
 	char script_str[MAX_BONUS_SCRIPT_LENGTH]; //< Script string
-	uint32 tick; ///< Tick
+	t_tick tick; ///< Tick
 	uint16 flag; ///< Flags @see enum e_bonus_script_flags
 	int16 icon; ///< Icon SI
 	uint8 type; ///< 0 - None, 1 - Buff, 2 - Debuff
@@ -346,7 +373,7 @@ struct bonus_script_data {
 
 struct skill_cooldown_data {
 	unsigned short skill_id;
-	long tick;
+	t_tick tick;
 };
 
 enum storage_type {
@@ -376,7 +403,7 @@ struct s_storage {
 		unsigned get : 1;
 		unsigned put : 1;
 	} state;
-	union { // Max for inventory, storage, cart, and guild storage are 1637 each without changing this struct and struct item [2014/10/27]
+	union { // Max for inventory, storage, cart, and guild storage are 818 each without changing this struct and struct item [2016/08/14]
 		struct item items_inventory[MAX_INVENTORY];
 		struct item items_storage[MAX_STORAGE];
 		struct item items_cart[MAX_CART];
@@ -397,13 +424,14 @@ struct s_pet {
 	int pet_id;
 	short class_;
 	short level;
-	unsigned short egg_id;//pet egg id
-	unsigned short equip;//pet equip name_id
+	t_itemid egg_id;//pet egg id
+	t_itemid equip;//pet equip name_id
 	short intimate;//pet friendly
 	short hungry;//pet hungry
 	char name[NAME_LENGTH];
 	char rename_flag;
 	char incubate;
+	bool autofeed;
 };
 
 struct s_homunculus {	//[orn]
@@ -418,7 +446,7 @@ struct s_homunculus {	//[orn]
 	struct s_skill hskill[MAX_HOMUNSKILL]; //albator
 	short skillpts;
 	short level;
-	unsigned int exp;
+	t_exp exp;
 	short rename_flag;
 	short vaporize; //albator
 	int str;
@@ -445,7 +473,7 @@ struct s_mercenary {
 	short class_;
 	int hp, sp;
 	unsigned int kill_count;
-	unsigned int life_time;
+	t_tick life_time;
 };
 
 struct s_elemental {
@@ -455,7 +483,7 @@ struct s_elemental {
 	enum e_mode mode;
 	int hp, sp, max_hp, max_sp, matk, atk, atk2;
 	short hit, flee, amotion, def, mdef;
-	int life_time;
+	t_tick life_time;
 };
 
 struct s_friend {
@@ -480,7 +508,7 @@ struct mmo_charstatus {
 	uint32 mother;
 	uint32 child;
 
-	unsigned int base_exp,job_exp;
+	t_exp base_exp,job_exp;
 	int zeny;
 
 	short class_; ///< Player's JobID
@@ -516,7 +544,7 @@ struct mmo_charstatus {
 
 	struct s_friend friends[MAX_FRIENDS]; //New friend system [Skotlex]
 #ifdef HOTKEY_SAVING
-	struct hotkey hotkeys[MAX_HOTKEYS];
+	struct hotkey hotkeys[MAX_HOTKEYS_DB];
 #endif
 	bool show_equip,allow_party;
 	short rename;
@@ -534,6 +562,7 @@ struct mmo_charstatus {
 	uint32 uniqueitem_counter;
 
 	unsigned char hotkey_rowshift;
+	unsigned char hotkey_rowshift2;
 	unsigned long title_id;
 };
 
@@ -623,8 +652,7 @@ struct map_session_data;
 struct guild_member {
 	uint32 account_id, char_id;
 	short hair,hair_color,gender,class_,lv;
-	uint64 exp;
-	int exp_payper;
+	t_exp exp;
 	short online,position;
 	char name[NAME_LENGTH];
 	struct map_session_data *sd;
@@ -659,8 +687,8 @@ struct Channel;
 struct guild {
 	int guild_id;
 	short guild_lv, connect_member, max_member, average_lv;
-	uint64 exp;
-	unsigned int next_exp;
+	t_exp exp;
+	t_exp next_exp;
 	int skill_point;
 	char name[NAME_LENGTH],master[NAME_LENGTH];
 	struct guild_member member[MAX_GUILD];
@@ -672,11 +700,13 @@ struct guild {
 	struct guild_expulsion expulsion[MAX_GUILDEXPULSION];
 	struct guild_skill skill[MAX_GUILDSKILL];
 	struct Channel *channel;
-	unsigned short instance_id;
+	int instance_id;
 	time_t last_leader_change;
 
 	/* Used by char-server to save events for guilds */
 	unsigned short save_flag;
+
+	int32 chargeshout_flag_id;
 };
 
 struct guild_castle {
@@ -701,17 +731,33 @@ struct guild_castle {
 	int temp_guardians_max;
 };
 
+/// Enum for guild castle data script commands
+enum e_castle_data : uint8 {
+	CD_NONE = 0,
+	CD_GUILD_ID, ///< Guild ID
+	CD_CURRENT_ECONOMY, ///< Castle Economy score
+	CD_CURRENT_DEFENSE, ///< Castle Defense score
+	CD_INVESTED_ECONOMY, ///< Number of times the economy was invested in today
+	CD_INVESTED_DEFENSE, ///< Number of times the defense was invested in today
+	CD_NEXT_TIME, ///< unused
+	CD_PAY_TIME, ///< unused
+	CD_CREATE_TIME, ///< unused
+	CD_ENABLED_KAFRA, ///< Is 1 if a Kafra was hired for this castle, 0 otherwise
+	CD_ENABLED_GUARDIAN00, ///< Is 1 if the 1st guardian is present (Soldier Guardian)
+	// The others in between are not needed in src, but are exported for the script engine
+	CD_MAX = CD_ENABLED_GUARDIAN00 + MAX_GUARDIANS
+};
+
 /// Guild Permissions
 enum e_guild_permission {
 	GUILD_PERM_INVITE	= 0x001,
 	GUILD_PERM_EXPEL	= 0x010,
-#if PACKETVER >= 20140205
 	GUILD_PERM_STORAGE	= 0x100,
+#if PACKETVER >= 20140205
 	GUILD_PERM_ALL		= GUILD_PERM_INVITE|GUILD_PERM_EXPEL|GUILD_PERM_STORAGE,
 #else
 	GUILD_PERM_ALL		= GUILD_PERM_INVITE|GUILD_PERM_EXPEL,
 #endif
-	GUILD_PERM_MASK		= GUILD_PERM_ALL,
 	GUILD_PERM_DEFAULT	= GUILD_PERM_ALL,
 };
 
@@ -739,24 +785,27 @@ enum e_guild_member_info { //Change Member Infos
 };
 
 enum e_guild_skill {
-	GD_SKILLBASE=10000,
-	GD_APPROVAL=10000,
-	GD_KAFRACONTRACT=10001,
-	GD_GUARDRESEARCH=10002,
-	GD_GUARDUP=10003,
-	GD_EXTENSION=10004,
-	GD_GLORYGUILD=10005,
-	GD_LEADERSHIP=10006,
-	GD_GLORYWOUNDS=10007,
-	GD_SOULCOLD=10008,
-	GD_HAWKEYES=10009,
-	GD_BATTLEORDER=10010,
-	GD_REGENERATION=10011,
-	GD_RESTORE=10012,
-	GD_EMERGENCYCALL=10013,
-	GD_DEVELOPMENT=10014,
-	GD_ITEMEMERGENCYCALL=10015,
-	GD_GUILD_STORAGE=10016,
+	GD_SKILLBASE = 10000,
+	GD_APPROVAL = 10000,
+	GD_KAFRACONTRACT,
+	GD_GUARDRESEARCH,
+	GD_GUARDUP,
+	GD_EXTENSION,
+	GD_GLORYGUILD,
+	GD_LEADERSHIP,
+	GD_GLORYWOUNDS,
+	GD_SOULCOLD,
+	GD_HAWKEYES,
+	GD_BATTLEORDER,
+	GD_REGENERATION,
+	GD_RESTORE,
+	GD_EMERGENCYCALL,
+	GD_DEVELOPMENT,
+	GD_ITEMEMERGENCYCALL,
+	GD_GUILD_STORAGE,
+	GD_CHARGESHOUT_FLAG,
+	GD_CHARGESHOUT_BEATING,
+	GD_EMERGENCY_MOVE,
 	GD_MAX,
 };
 
@@ -892,22 +941,22 @@ enum e_job {
 	JOB_MECHANIC2,
 	JOB_MECHANIC_T2,
 
-	JOB_BABY_RUNE = 4096,
+	JOB_BABY_RUNE_KNIGHT = 4096,
 	JOB_BABY_WARLOCK,
 	JOB_BABY_RANGER,
-	JOB_BABY_BISHOP,
+	JOB_BABY_ARCH_BISHOP,
 	JOB_BABY_MECHANIC,
-	JOB_BABY_CROSS,
-	JOB_BABY_GUARD,
+	JOB_BABY_GUILLOTINE_CROSS,
+	JOB_BABY_ROYAL_GUARD,
 	JOB_BABY_SORCERER,
 	JOB_BABY_MINSTREL,
 	JOB_BABY_WANDERER,
 	JOB_BABY_SURA,
 	JOB_BABY_GENETIC,
-	JOB_BABY_CHASER,
+	JOB_BABY_SHADOW_CHASER,
 
-	JOB_BABY_RUNE2,
-	JOB_BABY_GUARD2,
+	JOB_BABY_RUNE_KNIGHT2,
+	JOB_BABY_ROYAL_GUARD2,
 	JOB_BABY_RANGER2,
 	JOB_BABY_MECHANIC2,
 
@@ -944,11 +993,11 @@ enum e_job {
 	JOB_MAX,
 };
 
-enum e_sex {
+enum e_sex : uint8 {
 	SEX_FEMALE = 0,
 	SEX_MALE,
-	SEX_SERVER,
-	SEX_ACCOUNT = 99
+	SEX_BOTH,
+	SEX_SERVER
 };
 
 /// Item Bound Type
@@ -1008,7 +1057,7 @@ struct clan{
 #error MAX_ZENY is too big
 #endif
 
-// This sanity check is required, because some other places(like skill.c) rely on this
+// This sanity check is required, because some other places(like skill.cpp) rely on this
 #if MAX_PARTY < 2
 #error MAX_PARTY is too small, you need at least 2 players for a party
 #endif
@@ -1040,7 +1089,9 @@ struct clan{
 	#ifndef ENABLE_SC_SAVING
 	#warning "Cart won't be able to be saved for relog"
 	#endif
-#if PACKETVER >= 20150826
+#if PACKETVER >= 20191106
+	#define MAX_CARTS 13		// used for another new cart design
+#elif PACKETVER >= 20150826
 	#define MAX_CARTS 12		// used for 3 new cart design
 #else
 	#define MAX_CARTS 9
